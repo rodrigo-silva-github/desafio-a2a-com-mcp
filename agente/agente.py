@@ -237,14 +237,20 @@ async def _executar_pedido(task: dict[str, Any], texto: str, traceparent: str | 
         return
     args = {"sala": m.group(1), "inicio": m.group(2), "fim": m.group(3), "responsavel": m.group(4)}
     task["args"] = args
-    task["traceparent"] = traceparent
+    # Trace fixo por Task: sem header na chamada A2A, gera um agora e mantem o
+    # mesmo trace-id nos requests seguintes daquela Task (span novo a cada request).
+    task["traceparent"] = traceparent or _novo_traceparent(_trace_id_de(None))
 
-    resultado = await _chamar_mcp(args, traceparent)
+    resultado = await _chamar_mcp(args, task["traceparent"])
     _aplicar_resultado_mcp(task, resultado)
 
 
-async def _continuar_task(task: dict[str, Any], texto: str, traceparent: str | None) -> None:
-    """Continuacao de uma Task pausada (SendMessage com taskId)."""
+async def _continuar_task(task: dict[str, Any], texto: str) -> None:
+    """Continuacao de uma Task pausada (SendMessage com taskId).
+
+    O traceparent e o da propria Task (definido em `_executar_pedido`): o par
+    pausa/retry sai com o mesmo trace-id e span novo.
+    """
     m = _ESCOLHA.match(texto.strip())
     if not m:
         task["state"] = INPUT_REQUIRED
@@ -263,9 +269,6 @@ async def _continuar_task(task: dict[str, Any], texto: str, traceparent: str | N
         task["history"].append(_msg_json("ROLE_USER", texto.strip(), task["id"], task["contextId"]))
         task["history"].append(_msg_json("ROLE_AGENT", f"alternativas: {', '.join(task['enum'])}", task["id"], task["contextId"]))
         return
-
-    if task["traceparent"] is None:
-        task["traceparent"] = traceparent
 
     resultado = await _chamar_mcp(
         task["args"],
@@ -401,7 +404,7 @@ def _send_message(params: dict[str, Any], traceparent: str | None) -> dict[str, 
             return _erro(-32602, f"Task nao esta aguardando input: {task['state']}")
         task["state"] = WORKING
         try:
-            _run_coro(_continuar_task(task, texto, traceparent))
+            _run_coro(_continuar_task(task, texto))
         except Exception as exc:  # noqa: BLE001
             task["state"] = FAILED
             task["history"].append(_msg_json("ROLE_AGENT", f"Erro interno: {exc}", task["id"], task["contextId"]))
