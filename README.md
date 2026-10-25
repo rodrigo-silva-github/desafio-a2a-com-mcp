@@ -54,9 +54,9 @@ Portas e endereços, quando precisar mudar (defaults são os do validador):
 
 | Variavel     | Processo      | Default                          |
 |--------------|---------------|----------------------------------|
-| `MCP_HOST`/`MCP_PORT` | servidor-mcp | `127.0.0.1` / `7301` |
+| `HOST`/`PORT` | servidor-mcp | `127.0.0.1` / `7301` |
 | `MCP_URL`    | agente (onde o MCP mora) | `http://127.0.0.1:7301/mcp` |
-| `AGENTE_HOST`/`AGENTE_PORT`/`AGENTE_BASE` | agente | `127.0.0.1` / `7300` / `http://127.0.0.1:7300` |
+| `HOST`/`PORT`/`AGENTE_BASE` | agente | `127.0.0.1` / `7300` / `http://127.0.0.1:7300` |
 
 O card A2A usa `AGENTE_BASE` (default `http://127.0.0.1:7300`) para montar a URL
 da interface JSON-RPC.
@@ -70,16 +70,19 @@ código — o servidor recusa chave curta ou ausente na subida.
 A ponte tem dois lados, ambos em `agente/agente.py`:
 
 1. **`input_required` do MCP vira `TASK_STATE_INPUT_REQUIRED`** — em
-   `_executar_pedido` (Task nova) o agente chama o servidor MCP com o driver
-   automático de elicitation **desligado**
-   (`client.session.call_tool(..., allow_input_required=True)`), então o
-   `InputRequiredResult` chega cru. Em `_pausar`, a Task vai para
-   `TASK_STATE_INPUT_REQUIRED`, a mensagem vira exatamente
-   `alternativas: <ids na ordem do enum>`, e o `requestState`, a chave do
-   `inputRequests` e os argumentos originais ficam guardados **naquela Task**.
+   `_executar_pedido` (Task nova, `agente/agente.py:231`) o agente chama o
+   servidor MCP com o driver automático de elicitation **desligado**
+   (`client.session.call_tool(..., allow_input_required=True)`, em
+   `agente/agente.py:212-228`), então o `InputRequiredResult` chega cru e é
+   traduzido em `_aplicar_resultado_mcp` (`agente/agente.py:282`). Em `_pausar`
+   (`agente/agente.py:325`), a Task vai para `TASK_STATE_INPUT_REQUIRED`, a
+   mensagem vira exatamente `alternativas: <ids na ordem do enum>`, e o
+   `requestState`, a chave do `inputRequests` e os argumentos originais ficam
+   guardados **naquela Task**.
 
 2. **O `requestState` volta para o servidor** — no `SendMessage` de continuação
-   (`_continuar_task`), o agente refaz o `tools/call` **original** com um id de
+   (`_continuar_task`, `agente/agente.py:248`), o agente refaz o `tools/call`
+   **original** (`agente/agente.py:273-278`) com um id de
    JSON-RPC novo (o SDK gera um id novo por request), ecoando o `requestState`
    sem abrir, com `inputResponses` usando a mesma chave que veio no
    `inputRequests` (`{chave: {"action": "accept"|"decline", ...}}`). O servidor
@@ -87,8 +90,8 @@ A ponte tem dois lados, ambos em `agente/agente.py`:
    recusou.
 
 O agente nunca decide sala, conflito, política ou alternativas: isso é do
-servidor MCP (resolver `escolha_de_sala` em `servidor-mcp/server.py`). O agente
-traduz protocolo; o `requestState` é opaco para ele.
+servidor MCP (resolver `escolha_de_sala` em `servidor-mcp/server.py:244`). O
+agente traduz protocolo; o `requestState` é opaco para ele.
 
 ## Decisões técnicas
 
