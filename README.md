@@ -116,7 +116,13 @@ traduz protocolo; o `requestState` é opaco para ele.
   `json_response=True`), que valida nativamente o `_meta` obrigatório
   (`protocolVersion`/`clientCapabilities` ausentes → `-32602` com HTTP 400) e os
   headers espelhados do corpo (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`
-  → `-32020` quando divergem). O `-32021` com `data.requiredCapabilities` é o
+  → `-32020` quando divergem). Ressalva medida: a checagem de versão só entra
+  quando o header `MCP-Protocol-Version` anuncia a revisão moderna (2026-07-28
+  ou maior); com um valor de handshake (`2025-11-25` e anteriores) ou sem o
+  header, o transporte serve o request pelo caminho antigo, sem a escada de
+  `_meta` do corpo (responde HTTP 200) — comportamento nativo do transporte,
+  não código deste projeto. `Mcp-Method` e `Mcp-Name` divergentes do corpo
+  recusam sempre. O `-32021` com `data.requiredCapabilities` é o
   comportamento nativo do resolver quando o cliente não declarou a capability
   `{"elicitation": {"form": {}}}`.
 - **Capability de elicitation declarada, ciclo dirigido à mão** — o agente
@@ -128,9 +134,12 @@ traduz protocolo; o `requestState` é opaco para ele.
 - **traceparent** — o header `traceparent` da chamada A2A é lido de forma
   insensível a caixa (o case chega variando: `Traceparent` do urllib,
   `traceparent` do curl) e propagado no `_meta` de todo request MCP daquela Task
-  com o **mesmo trace-id** e span novo; quando não há header, o agente gera um
-  traceparent próprio. O servidor registra no **stderr** o método, o id e o
-  traceparent de cada request (`request method=... id=... traceparent=...`).
+  com o **mesmo trace-id** e span novo. Quando não há header, o agente gera um
+  traceparent próprio **na criação da Task** e mantém aquele trace-id nos
+  requests seguintes da mesma Task (span novo a cada request) — assim o par
+  pausa/retry fica correlacionado nos dois casos. O servidor registra no
+  **stderr** o método, o id e o traceparent de cada request
+  (`request method=... id=... traceparent=...`).
 - **Sem LLM** — o agente interpreta o pedido em formato fixo
   (`reservar sala=<id> inicio=<iso8601> fim=<iso8601> responsavel=<nome>`) por
   regra. Dependências: apenas `mcp==2.3.0` (versão travada nos dois
@@ -203,6 +212,23 @@ Conferências manuais do fluxo do avaliador, todas feitas nesta entrega:
   `escolha=sala-mirante` conclui em `TASK_STATE_COMPLETED` (artifact com
   `"politica": "2026-11-01"`); `escolha=recusar` termina em `TASK_STATE_CANCELED`;
   sala inexistente termina em `TASK_STATE_FAILED` com a mensagem da tool.
+- **Recusa com as alternativas mudando no meio** — o SDK só consome a resposta
+  para a pergunta exatamente como foi mostrada ao cliente (no `resolve.py`:
+  "the question changed since it was asked"). Se alguém ocupar uma das
+  alternativas entre a pausa e a recusa, a Task **não** fica presa: ela volta a
+  `TASK_STATE_INPUT_REQUIRED` com a lista atualizada e a recusa seguinte
+  termina em `TASK_STATE_CANCELED`. Verificado ponta a ponta: garagem 14h–15h
+  pausada com `alternativas: sala-fusca, sala-mirante` → outra Task ocupa a
+  `sala-mirante` → `escolha=recusar` devolve `alternativas: sala-fusca` →
+  `escolha=recusar` de novo → `TASK_STATE_CANCELED`. Sem mudança no meio, a
+  recusa cancela de primeira (pausa na `sala-fusca` 16h–17h → recusar →
+  CANCELED).
+- **`-32020` nos headers espelhados** — `Mcp-Method` e `Mcp-Name` divergentes do
+  corpo recusam sempre (HTTP 400). A divergência de `MCP-Protocol-Version`
+  recusa quando o header anuncia 2026-07-28 (ou maior) e o `_meta` diz outra
+  coisa; header de revisão de handshake (ex.: `2025-11-25`) ou header ausente
+  não entra nessa escada: o transporte responde pelo caminho antigo, com HTTP
+  200.
 - Um `requestState` adulterado é rejeitado com `-32602` (HTTP 400); o retry com
   o requestState válido conclui a reserva **mesmo com o servidor MCP reiniciado
   entre a pausa e o retry**; o mesmo `tools/call` de conflito sem a capability de
