@@ -1,0 +1,11 @@
+[project]
+name = "agente-a2a"
+version = "1.0.0"
+description = "Agente A2A Central de Salas: host MCP por dentro, servidor A2A por fora - desafio A Ponte"
+requires-python = ">=3.10"
+
+# Versao travada do SDK oficial do MCP (v2). Nenhuma dependencia de LLM:
+# o agente decide por regra e e deterministico.
+dependencies = [
+    "mcp==2.3.0",
+]
